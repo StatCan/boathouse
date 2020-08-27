@@ -34,6 +34,9 @@ import (
 
 	"github.com/StatCan/boathouse/internal/agent"
 	"github.com/StatCan/boathouse/internal/client"
+	"github.com/StatCan/boathouse/internal/flexvol"
+	"github.com/StatCan/boathouse/internal/utils"
+	"github.com/sevlyar/go-daemon"
 	"github.com/spf13/cobra"
 	"k8s.io/klog"
 )
@@ -85,6 +88,30 @@ var mountCmd = &cobra.Command{
 			}
 		}
 
+		// 1. Fork(ish)!
+		// @TODO: Don't print success from parent until we know the child is good
+		dctx := new(daemon.Context)
+		child, err := dctx.Reborn()
+		if err != nil {
+			klog.Fatalf("failed to daemonize: %v", err)
+		}
+
+		if child != nil {
+			klog.Infof("child: %v", child)
+			response := flexvol.DriverStatus{
+				Status:  flexvol.StatusSuccess,
+				Message: "Started disk mount",
+			}
+
+			err := utils.PrintJSON(os.Stdout, response)
+			if err != nil {
+				log.Fatal(err)
+			}
+			os.Exit(0)
+		} else {
+			defer dctx.Release()
+		}
+
 		// 2. Request credentials from the agent
 	GoofysLoop:
 		for {
@@ -93,7 +120,9 @@ var mountCmd = &cobra.Command{
 				TTL:  vaultTTL,
 			})
 			if err != nil {
-				klog.Fatalf("failed to issue credentials: %v", err)
+				klog.Errorf("failed to issue credentials: %v", err)
+				time.Sleep(time.Second)
+				continue
 			}
 			klog.Infof("obtained credentials from vault: %s, expires at %v", creds.AccessKey, creds.Lease.Expiry)
 
