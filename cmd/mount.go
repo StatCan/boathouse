@@ -96,6 +96,10 @@ var mountCmd = &cobra.Command{
 			klog.Fatalf("failed to daemonize: %v", err)
 		}
 
+		// 4a. [Client] On success, signal parent that we have successfully started and write pid to state file
+		// 4ai: [Client] Timeout until credentials expire. On expiry, request new credentials, terminate goofys and start goofys
+		// 4b. [Client] On failure, signal parent that we have not started. Exit.
+		// 5. [Parent] Exits and returns success/failure based on signal
 		if child != nil {
 			klog.Infof("child: %v", child)
 			response := flexvol.DriverStatus{
@@ -220,11 +224,6 @@ var mountCmd = &cobra.Command{
 
 			klog.Infof("goofys terminated... restarting")
 		}
-
-		// 4a. [Client] On success, signal parent that we have successfully started and write pid to state file
-		// 4ai: [Client] Timeout until credentials expire. On expiry, request new credentials, terminate goofys and start goofys
-		// 4b. [Client] On failure, signal parent that we have not started. Exit.
-		// 5. [Parent] Exits and returns success/failure based on signal
 
 		log.Fatal("mount called: not implemented")
 	},
