@@ -45,29 +45,52 @@ var mountCmd = &cobra.Command{
 	// Args:      cobra.ExactValidArgs(2),
 	// ValidArgs: []string{"mountdir", "options"},
 	Run: func(cmd *cobra.Command, args []string) {
+		var err error
+		var socketPath *net.UnixAddr
+
 		// TODO: Setup a context that will cancel when the process is requested to terminate
 		ctx := context.Background()
 
 		// 0. Decode options
 		var options map[string]string
-		err := json.Unmarshal([]byte(args[1]), &options)
+		err = json.Unmarshal([]byte(args[1]), &options)
 		if err != nil {
 			klog.Fatalf("failed to parse options: %v", err)
 		}
 
-		// 1. @TODO: Fork ourselves (we want to run in the background)
-		socketPath, _ := net.ResolveUnixAddr("unix", "/tmp/boathouse.sock")
+		if flag := cmd.Flag("agent-socket-path"); flag != nil {
+			socketPath, err = net.ResolveUnixAddr("unix", flag.Value.String())
+			if err != nil {
+				log.Fatalf("failed to resolve unix socket: %v", err)
+			}
+		}
+
 		c, err := client.NewClient(socketPath)
 		if err != nil {
-			klog.Fatalf("failed to create client: %v")
+			log.Fatalf("failed to create client: %v", err)
+		}
+
+		vaultPath := ""
+		if val, ok := options["vault-path"]; ok {
+			vaultPath = val
+		}
+
+		vaultTTL := time.Duration(0)
+		if val, ok := options["vault-ttl"]; ok {
+			dval, err := time.ParseDuration(val)
+			if err != nil {
+				klog.Warningf("failed to parse vault ttl duration: %v", err)
+			} else {
+				vaultTTL = dval
+			}
 		}
 
 		// 2. Request credentials from the agent
 	GoofysLoop:
 		for {
 			creds, err := c.IssueCredentials(agent.IssueCredentialRequest{
-				Path: "minio_minimal_tenant1/keys/profile-zachary-seguin",
-				TTL:  time.Second * 5,
+				Path: vaultPath,
+				TTL:  vaultTTL,
 			})
 			if err != nil {
 				klog.Fatalf("failed to issue credentials: %v", err)
@@ -181,13 +204,5 @@ var mountCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(mountCmd)
 
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// mountCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// mountCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	mountCmd.Flags().StringP("agent-socket-path", "a", "/tmp/boathouse.sock", "Address to connect to the agent.")
 }
