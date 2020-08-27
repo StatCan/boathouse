@@ -23,8 +23,17 @@ package cmd
 
 import (
 	"log"
+	"net"
+	"net/http"
+	"os"
+	"time"
 
+	"github.com/StatCan/boathouse/internal/agent"
+	"github.com/gorilla/handlers"
+	"github.com/gorilla/mux"
 	"github.com/spf13/cobra"
+
+	vault "github.com/hashicorp/vault/api"
 )
 
 // agentCmd represents the agent command
@@ -33,20 +42,65 @@ var agentCmd = &cobra.Command{
 	Short: "Runs the boathouse agent",
 	Long:  `The boathouse agent provides a proxy to obtain resources from HashiCorp Vault.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		log.Fatal("agent called: not implemented")
+		var err error
+		var socketPath *net.UnixAddr
+
+		// Process the socket
+		if flag := cmd.Flag("socket-path"); flag != nil {
+			socketPath, err = net.ResolveUnixAddr("unix", flag.Value.String())
+			if err != nil {
+				log.Fatalf("failed to resolve unix socket: %v", err)
+			}
+		}
+
+		// If the socket exists, lets remove it
+		if err = os.Remove(socketPath.Name); !os.IsNotExist(err) && err != nil {
+			log.Fatalf("failed to remove existing socket: %v", err)
+		}
+
+		// Start a new listener
+		listener, err := net.ListenUnix(socketPath.Net, socketPath)
+		if err != nil {
+			log.Fatalf("failed to setup listener: %v", err)
+		}
+		defer listener.Close()
+
+		// Setup a webserver
+		router := mux.NewRouter()
+
+		// Agent
+		vc, err := vault.NewClient(&vault.Config{
+			Address:      os.Getenv("VAULT_ADDR"),
+			AgentAddress: os.Getenv("VAULT_AGENT_ADDR"),
+		})
+		agent, err := agent.NewAgent(vc)
+		if err != nil {
+			log.Fatalf("failed to create vault client: %v", err)
+		}
+
+		if token := os.Getenv("VAULT_TOKEN"); token != "" {
+			vc.SetToken(token)
+		}
+
+		router.Path("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("hello world"))
+		})
+
+		router.Path("/issue").HandlerFunc(agent.HandleIssueCredentials)
+
+		server := http.Server{
+			Handler:      handlers.CombinedLoggingHandler(os.Stdout, router),
+			WriteTimeout: 15 * time.Second,
+			ReadTimeout:  15 * time.Second,
+		}
+
+		log.Printf("listening on %v", socketPath)
+		log.Fatal(server.Serve(listener))
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(agentCmd)
 
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// agentCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// agentCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	agentCmd.Flags().StringP("socket-path", "s", "/tmp/boathouse.sock", "Listen address for agent communication.")
 }

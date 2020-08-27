@@ -35,7 +35,7 @@ var cfgFile string
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "boathouse-hangerabateaux",
+	Use:   "boathouse",
 	Short: "Provides Kubernetes FlexVol wrapper for storage management",
 	Long: `boathouse provides storage management to Kubernetes via FlexVol.
 

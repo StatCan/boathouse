@@ -22,16 +22,144 @@ THE SOFTWARE.
 package cmd
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"log"
+	"net"
+	"os"
+	"os/exec"
+	"strconv"
+	"time"
 
+	"github.com/StatCan/boathouse/internal/agent"
+	"github.com/StatCan/boathouse/internal/client"
 	"github.com/spf13/cobra"
+	"k8s.io/klog"
 )
 
 // mountCmd represents the mount command
 var mountCmd = &cobra.Command{
 	Use:   "mount",
 	Short: "Mount a volume to a directory",
+	// Args:      cobra.ExactValidArgs(2),
+	// ValidArgs: []string{"mountdir", "options"},
 	Run: func(cmd *cobra.Command, args []string) {
+
+		// 0. Decode options
+		var options map[string]string
+		err := json.Unmarshal([]byte(args[1]), &options)
+		if err != nil {
+			klog.Fatalf("failed to parse options: %v", err)
+		}
+
+		// 1. @TODO: Fork ourselves (we want to run in the background)
+		socketPath, _ := net.ResolveUnixAddr("unix", "/tmp/boathouse.sock")
+		c, err := client.NewClient(socketPath)
+		if err != nil {
+			klog.Fatalf("failed to create client: %v")
+		}
+
+		// 2. Request credentials from the agent
+		creds, err := c.IssueCredentials(agent.IssueCredentialRequest{
+			Path: "minio_minimal_tenant1/keys/profile-zachary-seguin",
+		})
+		if err != nil {
+			klog.Fatalf("failed to issue credentials: %v", err)
+		}
+		log.Printf("%v", creds)
+
+		// 3. [Client] Start goofys
+
+		// TODO: Setup a context that will cancel when the process is requested to terminate
+		ctx := context.Background()
+
+		goofysArgs := []string{}
+
+		// Run in foreground mode
+		goofysArgs = append(goofysArgs, "-f")
+
+		// File/Directory modes
+		dirMode := "0755"
+		if val, ok := options["dirMode"]; ok {
+			dirMode = val
+		}
+
+		fileMode := "0644"
+		if val, ok := options["fileMode"]; ok {
+			fileMode = val
+		}
+
+		goofysArgs = append(goofysArgs,
+			"-o", "allow_other",
+			"--dir-mode", dirMode,
+			"--file-mode", fileMode,
+		)
+
+		// Endpoint
+		if val, ok := options["endpoint"]; ok {
+			goofysArgs = append(goofysArgs, "--endpoint", val)
+		}
+
+		// Region
+		if val, ok := options["region"]; ok {
+			goofysArgs = append(goofysArgs, "--region", val)
+		}
+
+		// UID
+		if val, ok := options["uid"]; ok {
+			goofysArgs = append(goofysArgs, "--uid", val)
+		}
+
+		// GID
+		if val, ok := options["gid"]; ok {
+			goofysArgs = append(goofysArgs, "--gid", val)
+		}
+
+		// Debug
+		if val, ok := options["debug_s3"]; ok {
+			bval, err := strconv.ParseBool(val)
+			if err != nil {
+				klog.Warningf("failed to parse bool for debug_s3: %s : %v", val, err)
+			}
+			if bval {
+				goofysArgs = append(goofysArgs, "--debug_s3")
+			}
+		}
+
+		// Bucket (positional argument)
+		if val, ok := options["bucket"]; ok {
+			goofysArgs = append(goofysArgs, val)
+		} else {
+			klog.Fatalf("bucket option is required")
+		}
+
+		// Mount path (positional argument)
+		goofysArgs = append(goofysArgs, args[0])
+
+		// Setup a new context, with the existing context as a parent,
+		// which will automatically terminate goofys when our
+		// credentials expire
+		credscontext, _ := context.WithDeadline(ctx, time.Now().Add(creds.Lease.Duration))
+
+		goofys := exec.CommandContext(credscontext, "goofys", goofysArgs...)
+
+		// Setup environment variable for access key and secret key
+		goofys.Env = os.Environ()
+		goofys.Env = append(goofys.Env, fmt.Sprintf("AWS_ACCESS_KEY_ID=%s", creds.AccessKey))
+		goofys.Env = append(goofys.Env, fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", creds.SecretKey))
+
+		err = goofys.Run()
+
+		if err != nil {
+			klog.Fatalf("failed running goofys: %v", err)
+		}
+
+		// 4a. [Client] On success, signal parent that we have successfully started and write pid to state file
+		// 4ai: [Client] Timeout until credentials expire. On expiry, request new credentials, terminate goofys and start goofys
+		// 4b. [Client] On failure, signal parent that we have not started. Exit.
+		// 5. [Parent] Exits and returns success/failure based on signal
+
 		log.Fatal("mount called: not implemented")
 	},
 }

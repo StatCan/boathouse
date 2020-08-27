@@ -32,6 +32,8 @@ var unmountCmd = &cobra.Command{
 	Use:   "unmount",
 	Short: "Unmount a volume from the mount directory",
 	Run: func(cmd *cobra.Command, args []string) {
+		// 1. Find pid for mount and terminate
+
 		log.Fatal("unmount called: not implemented")
 	},
 }

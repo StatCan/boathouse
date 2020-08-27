@@ -21,7 +21,7 @@ THE SOFTWARE.
 */
 package main
 
-import "github.com/StatCan/boathouse-hangerabateaux/cmd"
+import "github.com/StatCan/boathouse/cmd"
 
 func main() {
 	cmd.Execute()

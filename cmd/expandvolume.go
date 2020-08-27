@@ -25,8 +25,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/StatCan/boathouse-hangerabateaux/internal/flexvol"
-	"github.com/StatCan/boathouse-hangerabateaux/internal/utils"
+	"github.com/StatCan/boathouse/internal/flexvol"
+	"github.com/StatCan/boathouse/internal/utils"
 	"github.com/spf13/cobra"
 )
 

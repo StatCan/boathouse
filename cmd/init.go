@@ -27,8 +27,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/StatCan/boathouse-hangerabateaux/internal/flexvol"
-	"github.com/StatCan/boathouse-hangerabateaux/internal/utils"
+	"github.com/StatCan/boathouse/internal/flexvol"
+	"github.com/StatCan/boathouse/internal/utils"
 )
 
 // initCmd represents the init command
