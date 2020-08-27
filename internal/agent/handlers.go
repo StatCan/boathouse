@@ -57,11 +57,11 @@ func (a *Agent) IssueCredentials(ctx context.Context, req IssueCredentialRequest
 
 	klog.Infof("issuing credentials: %s with TTL %v", req.Path, req.TTL)
 
-	if req.TTL > 0 {
+	if req.TTL == 0 {
 		creds, err = a.vault.Logical().Read(req.Path)
 	} else {
 		creds, err = a.vault.Logical().ReadWithData(req.Path, map[string][]string{
-			"ttl": []string{strconv.FormatInt(req.TTL.Microseconds(), 10)},
+			"ttl": {strconv.FormatInt(int64(req.TTL.Seconds()), 10)},
 		})
 	}
 	if err != nil {
