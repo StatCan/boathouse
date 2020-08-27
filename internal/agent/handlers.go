@@ -75,8 +75,8 @@ func (a *Agent) IssueCredentials(ctx context.Context, req IssueCredentialRequest
 
 	response := IssueCredentialResponse{
 		Lease: Lease{
-			ID:       creds.LeaseID,
-			Duration: time.Duration(creds.LeaseDuration) * time.Second,
+			ID:     creds.LeaseID,
+			Expiry: time.Now().Add(time.Duration(creds.LeaseDuration) * time.Second),
 		},
 	}
 
@@ -88,7 +88,7 @@ func (a *Agent) IssueCredentials(ctx context.Context, req IssueCredentialRequest
 		response.SecretKey = val.(string)
 	}
 
-	klog.Infof("issued credentials: %s, expiring in %v", response.AccessKey, response.Lease.Duration)
+	klog.Infof("issued credentials: %s, expiring at %v", response.AccessKey, response.Lease.Expiry)
 
 	return &response, nil
 }

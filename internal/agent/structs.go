@@ -28,8 +28,8 @@ type IssueCredentialRequest struct {
 }
 
 type Lease struct {
-	ID       string        `json:"id"`
-	Duration time.Duration `json:"duration"`
+	ID     string    `json:"id"`
+	Expiry time.Time `json:"expiry"`
 }
 
 type IssueCredentialResponse struct {

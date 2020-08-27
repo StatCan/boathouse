@@ -72,7 +72,7 @@ var mountCmd = &cobra.Command{
 			if err != nil {
 				klog.Fatalf("failed to issue credentials: %v", err)
 			}
-			log.Printf("%v", creds)
+			klog.Infof("obtained credentials from vault: %s, expires at %v", creds.AccessKey, creds.Lease.Expiry)
 
 			// 3. [Client] Start goofys
 
@@ -142,7 +142,7 @@ var mountCmd = &cobra.Command{
 			// Setup a new context, with the existing context as a parent,
 			// which will automatically terminate goofys when our
 			// credentials expire
-			credscontext, _ := context.WithDeadline(ctx, time.Now().Add(creds.Lease.Duration))
+			credscontext, _ := context.WithDeadline(ctx, creds.Lease.Expiry)
 
 			goofys := exec.CommandContext(credscontext, "goofys", goofysArgs...)
 
@@ -151,6 +151,7 @@ var mountCmd = &cobra.Command{
 			goofys.Env = append(goofys.Env, fmt.Sprintf("AWS_ACCESS_KEY_ID=%s", creds.AccessKey))
 			goofys.Env = append(goofys.Env, fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", creds.SecretKey))
 
+			klog.Infof("starting goofys")
 			err = goofys.Run()
 
 			if err != nil {
