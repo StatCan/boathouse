@@ -29,7 +29,9 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/StatCan/boathouse/internal/agent"
@@ -51,8 +53,18 @@ var mountCmd = &cobra.Command{
 		var err error
 		var socketPath *net.UnixAddr
 
-		// TODO: Setup a context that will cancel when the process is requested to terminate
-		ctx := context.Background()
+		// Setup a context that we will cancel when the process is requested to terminate
+		ctx, cancel := context.WithCancel(context.Background())
+
+		sigs := make(chan os.Signal, 1)
+		done := make(chan bool, 1)
+
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-sigs
+			cancel()
+			done <- true
+		}()
 
 		// 0. Decode options
 		var options map[string]string
@@ -225,7 +237,8 @@ var mountCmd = &cobra.Command{
 			klog.Infof("goofys terminated... restarting")
 		}
 
-		log.Fatal("mount called: not implemented")
+		<-done
+		klog.Infof("terminating")
 	},
 }
 
