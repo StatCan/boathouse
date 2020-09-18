@@ -25,11 +25,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path"
 	"strconv"
 	"syscall"
 	"time"
@@ -52,6 +54,8 @@ var mountCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		var err error
 		var socketPath *net.UnixAddr
+
+		target := args[0]
 
 		// Setup a context that we will cancel when the process is requested to terminate
 		ctx, cancel := context.WithCancel(context.Background())
@@ -113,13 +117,16 @@ var mountCmd = &cobra.Command{
 		// 4b. [Client] On failure, signal parent that we have not started. Exit.
 		// 5. [Parent] Exits and returns success/failure based on signal
 		if child != nil {
-			klog.Infof("child: %v", child)
-			response := flexvol.DriverStatus{
-				Status:  flexvol.StatusSuccess,
-				Message: "Started disk mount",
+			// Write out the pid file
+			err = ioutil.WriteFile(path.Join(os.TempDir(), utils.PathSum256(target)), []byte(strconv.Itoa(child.Pid)), 0644)
+			if err != nil {
+				log.Fatalf("Error writing pid file: %v", err)
 			}
 
-			err := utils.PrintJSON(os.Stdout, response)
+			err := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
+				Status:  flexvol.StatusSuccess,
+				Message: "Started disk mount",
+			})
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -205,7 +212,7 @@ var mountCmd = &cobra.Command{
 			}
 
 			// Mount path (positional argument)
-			goofysArgs = append(goofysArgs, args[0])
+			goofysArgs = append(goofysArgs, target)
 
 			// Setup a new context, with the existing context as a parent,
 			// which will automatically terminate goofys when our
@@ -245,5 +252,5 @@ var mountCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(mountCmd)
 
-	mountCmd.Flags().StringP("agent-socket-path", "a", "/tmp/boathouse.sock", "Address to connect to the agent.")
+	mountCmd.Flags().StringP("agent-socket-path", "a", path.Join(os.TempDir(), "boathouse.sock"), "Address to connect to the agent.")
 }

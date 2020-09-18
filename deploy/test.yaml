@@ -1,0 +1,44 @@
+# Deployment
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: boathouse-test
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: boathouse-test
+  template:
+    metadata:
+      name: boathouse
+      labels:
+        app.kubernetes.io/name: boathouse-test
+    spec:
+      containers:
+        - name: sh
+          image: alpine:latest
+          args: ["cat"]
+          tty: true
+          volumeMounts:
+            - name: minio
+              mountPath: /minio
+      volumes:
+        - name: minio
+          flexVolume:
+            driver: "statcan.gc.ca/boathouse"
+            options:
+              vault-path: minio_minimal_tenant1/keys/profile-zachary-seguin
+              vault-ttl: 1m
+
+              # Required
+              bucket: "zachary-seguin"
+              # Optional
+              dirMode: "0755"
+              fileMode: "0644"
+              uid: "0"
+              gid: "0"
+              #subPath: "key/prefix"
+              endpoint: "minimal-tenant1-minio.covid.cloud.statcan.ca"
+              debug_s3: "false"
+              region: "us-east-1"

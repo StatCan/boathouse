@@ -1,6 +1,6 @@
 
 # Build with the golang image
-FROM golang:1.14-alpine AS build
+FROM golang:1.15-alpine AS build
 
 # Add git
 RUN apk add git
@@ -18,6 +18,6 @@ COPY . .
 RUN CGO_ENABLED=0 go build
 
 # Generate final image
-FROM scratch
-COPY --from=build /work/boathouse /boathouse
-ENTRYPOINT [ "/boathouse" ]
+FROM alpine:latest
+COPY --from=build /work/boathouse /usr/local/bin/boathouse
+ENTRYPOINT [ "/usr/local/bin/boathouse" ]

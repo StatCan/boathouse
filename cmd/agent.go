@@ -26,6 +26,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"time"
 
 	"github.com/StatCan/boathouse/internal/agent"
@@ -102,5 +103,5 @@ var agentCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(agentCmd)
 
-	agentCmd.Flags().StringP("socket-path", "s", "/tmp/boathouse.sock", "Listen address for agent communication.")
+	agentCmd.Flags().StringP("socket-path", "s", path.Join(os.TempDir(), "boathouse.sock"), "Listen address for agent communication.")
 }

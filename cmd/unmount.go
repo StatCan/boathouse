@@ -22,8 +22,16 @@ THE SOFTWARE.
 package cmd
 
 import (
+	"fmt"
+	"io/ioutil"
 	"log"
+	"os"
+	"path"
+	"strconv"
+	"syscall"
 
+	"github.com/StatCan/boathouse/internal/flexvol"
+	"github.com/StatCan/boathouse/internal/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -32,22 +40,82 @@ var unmountCmd = &cobra.Command{
 	Use:   "unmount",
 	Short: "Unmount a volume from the mount directory",
 	Run: func(cmd *cobra.Command, args []string) {
-		// 1. Find pid for mount and terminate
+		target := args[0]
 
-		log.Fatal("unmount called: not implemented")
+		pidfile := path.Join(path.Clean(os.TempDir()), utils.PathSum256(target))
+		pidstr, err := ioutil.ReadFile(pidfile)
+		if err != nil {
+			perr := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
+				Status:  flexvol.StatusFailure,
+				Message: fmt.Sprintf("could not load pid file for path %s: %v", target, err.Error()),
+			})
+			if perr != nil {
+				log.Fatal(perr)
+			}
+			os.Exit(0)
+		}
+
+		// 1. Find pid for mount and terminate
+		pid, err := strconv.Atoi(string(pidstr))
+		if err != nil {
+			perr := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
+				Status:  flexvol.StatusFailure,
+				Message: fmt.Sprintf("error reading pid at %s: %v", target, err.Error()),
+			})
+			if perr != nil {
+				log.Fatal(perr)
+			}
+			os.Exit(0)
+		}
+
+		proc, err := os.FindProcess(pid)
+		if err != nil {
+			perr := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
+				Status:  flexvol.StatusFailure,
+				Message: fmt.Sprintf("cannot find process %d: %v", pid, err.Error()),
+			})
+			if perr != nil {
+				log.Fatal(perr)
+			}
+			os.Exit(0)
+		}
+		err = proc.Signal(syscall.SIGTERM)
+		if err != nil && err.Error() != "os: process already finished" {
+			perr := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
+				Status:  flexvol.StatusFailure,
+				Message: fmt.Sprintf("error sending signal to pid %d: %v", pid, err.Error()),
+			})
+			if perr != nil {
+				log.Fatal(perr)
+			}
+			os.Exit(0)
+		}
+
+		err = os.Remove(target)
+		if err != nil && !os.IsNotExist(err) {
+			perr := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
+				Status:  flexvol.StatusFailure,
+				Message: fmt.Sprintf("error removing pid file %s: %v", target, err.Error()),
+			})
+			if perr != nil {
+				log.Fatal(perr)
+			}
+			os.Exit(0)
+		}
+
+		// Remove the pid file
+		_ = os.Remove(pidfile)
+
+		perr := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
+			Status:  flexvol.StatusSuccess,
+			Message: "terminated goofys",
+		})
+		if perr != nil {
+			log.Fatal(perr)
+		}
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(unmountCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// unmountCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// unmountCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
