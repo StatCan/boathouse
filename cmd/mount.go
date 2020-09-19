@@ -267,12 +267,13 @@ var mountCmd = &cobra.Command{
 		klog.Infof("starting goofys")
 		go goofys.Run()
 
+		wake := creds.Lease.Expiry
 	GoofysLoop:
 		for {
 			// Setup a new context, with the existing context as a parent,
 			// which will automatically terminate goofys when our
 			// credentials expire
-			credscontext, _ := context.WithDeadline(ctx, creds.Lease.Expiry)
+			credscontext, _ := context.WithDeadline(ctx, wake)
 
 			<-credscontext.Done()
 			switch credscontext.Err() {
@@ -280,7 +281,10 @@ var mountCmd = &cobra.Command{
 				klog.Warningf("issuing new credentials: credentials expired")
 				creds, err = doCredentials(c, vaultPath, vaultTTL, credsfile)
 				if err != nil {
-					klog.Warningf("failed to get credentails: %v", err)
+					wake = time.Now().Add(time.Second * 10)
+					klog.Warningf("failed to get credentials: %v", err)
+				} else {
+					wake = creds.Lease.Expiry
 				}
 			case context.Canceled:
 				klog.Warningf("terminating due to context cancellation")
