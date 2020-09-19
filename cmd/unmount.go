@@ -42,7 +42,7 @@ var unmountCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		target := args[0]
 
-		pidfile := path.Join(path.Clean(os.TempDir()), utils.PathSum256(target))
+		pidfile := path.Join(os.TempDir(), fmt.Sprintf("%s.pid", utils.PathSum256(target)))
 		pidstr, err := ioutil.ReadFile(pidfile)
 		if err != nil {
 			perr := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
@@ -108,7 +108,7 @@ var unmountCmd = &cobra.Command{
 
 		perr := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
 			Status:  flexvol.StatusSuccess,
-			Message: "terminated goofys",
+			Message: "terminated",
 		})
 		if perr != nil {
 			log.Fatal(perr)

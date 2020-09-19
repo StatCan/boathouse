@@ -42,8 +42,52 @@ import (
 	"github.com/StatCan/boathouse/internal/utils"
 	"github.com/sevlyar/go-daemon"
 	"github.com/spf13/cobra"
+	"gopkg.in/ini.v1"
 	"k8s.io/klog"
 )
+
+// doCredentials requests credentials and writes them to the sepecified file.
+func doCredentials(issuer *client.Client, vaultPath string, vaultTTL time.Duration, filename string) (*agent.IssueCredentialResponse, error) {
+	creds, err := issuer.IssueCredentials(agent.IssueCredentialRequest{
+		Path: vaultPath,
+		TTL:  vaultTTL,
+	})
+	if err != nil {
+		klog.Errorf("failed to issue credentials: %v", err)
+		return nil, err
+	}
+
+	// klog.Infof("obtained credentials from vault: %s, expires at %v", creds.AccessKey, creds.Lease.Expiry)
+
+	// Write credentials to file
+	ini.PrettyFormat = false
+	cfg := ini.Empty()
+	cfgsec, err := cfg.NewSection("default")
+	if err != nil {
+		// klog.Errorf("failed to create credentials section: %v", err)
+		return nil, err
+	}
+	if _, err = cfgsec.NewKey("aws_access_key_id", creds.AccessKey); err != nil {
+		// klog.Errorf("failed to write access key: %v", err)
+		return nil, err
+	}
+	if _, err = cfgsec.NewKey("aws_secret_access_key", creds.SecretKey); err != nil {
+		// klog.Errorf("failed to write secret key: %v", err)
+		return nil, err
+	}
+	if _, err = cfgsec.NewKey("expires_at", creds.Lease.Expiry.Format(time.RFC3339)); err != nil {
+		// klog.Errorf("failed to write expiry: %v", err)
+		return nil, err
+	}
+
+	// klog.Infof("writing credentials to %q", filename)
+	if err = cfg.SaveTo(filename); err != nil {
+		// klog.Errorf("failed to write ini file: %v", err)
+		return nil, err
+	}
+
+	return creds, nil
+}
 
 // mountCmd represents the mount command
 var mountCmd = &cobra.Command{
@@ -104,8 +148,24 @@ var mountCmd = &cobra.Command{
 			}
 		}
 
+		// 2. Request credentials from the agent
+		credsfile := path.Join(os.TempDir(), fmt.Sprintf("%s.creds", utils.PathSum256(target)))
+		creds, err := doCredentials(c, vaultPath, vaultTTL, credsfile)
+		if err != nil {
+			err := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
+				Status:  flexvol.StatusFailure,
+				Message: fmt.Sprintf("Failed to get creds: %v", err),
+			})
+			if err != nil {
+				log.Fatal(err)
+			}
+			os.Exit(1)
+		}
+
 		// 1. Fork(ish)!
 		// @TODO: Don't print success from parent until we know the child is good
+		pidfile := path.Join(os.TempDir(), fmt.Sprintf("%s.pid", utils.PathSum256(target)))
+
 		dctx := new(daemon.Context)
 		child, err := dctx.Reborn()
 		if err != nil {
@@ -113,19 +173,19 @@ var mountCmd = &cobra.Command{
 		}
 
 		// 4a. [Client] On success, signal parent that we have successfully started and write pid to state file
-		// 4ai: [Client] Timeout until credentials expire. On expiry, request new credentials, terminate goofys and start goofys
+		// 4ai: [Client] Timeout until credentials expire. On expiry, request new credentials
 		// 4b. [Client] On failure, signal parent that we have not started. Exit.
 		// 5. [Parent] Exits and returns success/failure based on signal
 		if child != nil {
 			// Write out the pid file
-			err = ioutil.WriteFile(path.Join(os.TempDir(), utils.PathSum256(target)), []byte(strconv.Itoa(child.Pid)), 0644)
+			err = ioutil.WriteFile(pidfile, []byte(strconv.Itoa(child.Pid)), 0644)
 			if err != nil {
 				log.Fatalf("Error writing pid file: %v", err)
 			}
 
 			err := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
 				Status:  flexvol.StatusSuccess,
-				Message: "Started disk mount",
+				Message: fmt.Sprintf("Started disk mount: %d", child.Pid),
 			})
 			if err != nil {
 				log.Fatal(err)
@@ -135,116 +195,107 @@ var mountCmd = &cobra.Command{
 			defer dctx.Release()
 		}
 
-		// 2. Request credentials from the agent
+		// 3. [Client] Start goofys
+		goofysArgs := []string{}
+
+		// Run in foreground mode
+		goofysArgs = append(goofysArgs, "-f")
+
+		// File/Directory modes
+		dirMode := "0755"
+		if val, ok := options["dirMode"]; ok {
+			dirMode = val
+		}
+
+		fileMode := "0644"
+		if val, ok := options["fileMode"]; ok {
+			fileMode = val
+		}
+
+		goofysArgs = append(goofysArgs,
+			"-o", "allow_other",
+			"--dir-mode", dirMode,
+			"--file-mode", fileMode,
+		)
+
+		// Endpoint
+		if val, ok := options["endpoint"]; ok {
+			goofysArgs = append(goofysArgs, "--endpoint", val)
+		}
+
+		// Region
+		if val, ok := options["region"]; ok {
+			goofysArgs = append(goofysArgs, "--region", val)
+		}
+
+		// UID
+		if val, ok := options["uid"]; ok {
+			goofysArgs = append(goofysArgs, "--uid", val)
+		}
+
+		// GID
+		if val, ok := options["gid"]; ok {
+			goofysArgs = append(goofysArgs, "--gid", val)
+		}
+
+		// Debug
+		if val, ok := options["debug_s3"]; ok {
+			bval, err := strconv.ParseBool(val)
+			if err != nil {
+				klog.Warningf("failed to parse bool for debug_s3: %s : %v", val, err)
+			}
+			if bval {
+				goofysArgs = append(goofysArgs, "--debug_s3")
+			}
+		}
+
+		// Credentials
+		goofysArgs = append(goofysArgs, "--cred-filename", credsfile)
+
+		// Bucket (positional argument)
+		if val, ok := options["bucket"]; ok {
+			goofysArgs = append(goofysArgs, val)
+		} else {
+			klog.Fatalf("bucket option is required")
+		}
+
+		// Mount path (positional argument)
+		goofysArgs = append(goofysArgs, target)
+
+		goofys := exec.CommandContext(ctx, "goofys", goofysArgs...)
+
+		klog.Infof("starting goofys")
+		go goofys.Run()
+
 	GoofysLoop:
 		for {
-			creds, err := c.IssueCredentials(agent.IssueCredentialRequest{
-				Path: vaultPath,
-				TTL:  vaultTTL,
-			})
-			if err != nil {
-				klog.Errorf("failed to issue credentials: %v", err)
-				time.Sleep(time.Second)
-				continue
-			}
-			klog.Infof("obtained credentials from vault: %s, expires at %v", creds.AccessKey, creds.Lease.Expiry)
-
-			// 3. [Client] Start goofys
-
-			goofysArgs := []string{}
-
-			// Run in foreground mode
-			goofysArgs = append(goofysArgs, "-f")
-
-			// File/Directory modes
-			dirMode := "0755"
-			if val, ok := options["dirMode"]; ok {
-				dirMode = val
-			}
-
-			fileMode := "0644"
-			if val, ok := options["fileMode"]; ok {
-				fileMode = val
-			}
-
-			goofysArgs = append(goofysArgs,
-				"-o", "allow_other",
-				"--dir-mode", dirMode,
-				"--file-mode", fileMode,
-			)
-
-			// Endpoint
-			if val, ok := options["endpoint"]; ok {
-				goofysArgs = append(goofysArgs, "--endpoint", val)
-			}
-
-			// Region
-			if val, ok := options["region"]; ok {
-				goofysArgs = append(goofysArgs, "--region", val)
-			}
-
-			// UID
-			if val, ok := options["uid"]; ok {
-				goofysArgs = append(goofysArgs, "--uid", val)
-			}
-
-			// GID
-			if val, ok := options["gid"]; ok {
-				goofysArgs = append(goofysArgs, "--gid", val)
-			}
-
-			// Debug
-			if val, ok := options["debug_s3"]; ok {
-				bval, err := strconv.ParseBool(val)
-				if err != nil {
-					klog.Warningf("failed to parse bool for debug_s3: %s : %v", val, err)
-				}
-				if bval {
-					goofysArgs = append(goofysArgs, "--debug_s3")
-				}
-			}
-
-			// Bucket (positional argument)
-			if val, ok := options["bucket"]; ok {
-				goofysArgs = append(goofysArgs, val)
-			} else {
-				klog.Fatalf("bucket option is required")
-			}
-
-			// Mount path (positional argument)
-			goofysArgs = append(goofysArgs, target)
-
 			// Setup a new context, with the existing context as a parent,
 			// which will automatically terminate goofys when our
 			// credentials expire
 			credscontext, _ := context.WithDeadline(ctx, creds.Lease.Expiry)
 
-			goofys := exec.CommandContext(credscontext, "goofys", goofysArgs...)
-
-			// Setup environment variable for access key and secret key
-			goofys.Env = os.Environ()
-			goofys.Env = append(goofys.Env, fmt.Sprintf("AWS_ACCESS_KEY_ID=%s", creds.AccessKey))
-			goofys.Env = append(goofys.Env, fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", creds.SecretKey))
-
-			klog.Infof("starting goofys")
-			err = goofys.Run()
-
-			if err != nil {
-				switch credscontext.Err() {
-				case context.DeadlineExceeded:
-					klog.Warningf("goofys terminated due to credential expiry")
-				case context.Canceled:
-					klog.Warningf("goofys terminated due to context cancellation")
-					break GoofysLoop
-				default:
-					klog.Errorf("goofys terminated due to error: %v", err)
+			<-credscontext.Done()
+			switch credscontext.Err() {
+			case context.DeadlineExceeded:
+				klog.Warningf("issuing new credentials: credentials expired")
+				creds, err = doCredentials(c, vaultPath, vaultTTL, credsfile)
+				if err != nil {
+					klog.Warningf("failed to get credentails: %v", err)
 				}
+			case context.Canceled:
+				klog.Warningf("terminating due to context cancellation")
+				break GoofysLoop
 			}
-
-			klog.Infof("goofys terminated... restarting")
 		}
 
 		<-done
+
+		// Remove credential file
+		klog.Infof("removing credential file %q", credsfile)
+		if err := os.Remove(credsfile); err != nil {
+			klog.Errorf("failed to remove credential file: %v", err)
+		}
+
 		klog.Infof("terminating")
 	},
 }
