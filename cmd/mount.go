@@ -92,18 +92,7 @@ var mountCmd = &cobra.Command{
 
 		target := args[0]
 
-		// Setup a context that we will cancel when the process is requested to terminate
-		ctx, cancel := context.WithCancel(context.Background())
-
-		sigs := make(chan os.Signal, 1)
-		done := make(chan bool, 1)
-
-		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-		go func() {
-			<-sigs
-			cancel()
-			done <- true
-		}()
+		ctx := context.Background()
 
 		// 0. Decode options
 		var options map[string]string
@@ -293,13 +282,29 @@ var mountCmd = &cobra.Command{
 		klog.Infof("starting goofys")
 		go goofys.Run()
 
+		sigs := make(chan os.Signal, 1)
+		done := make(chan bool, 1)
+
+		// Create a context we can cancel when we terminate.
+		cctx, cancel := context.WithCancel(ctx)
+
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-sigs
+			if goofys.Process != nil {
+				goofys.Process.Signal(syscall.SIGTERM)
+			}
+			cancel()
+			done <- true
+		}()
+
 		wake := creds.Lease.Expiry
 	GoofysLoop:
 		for {
 			// Setup a new context, with the existing context as a parent,
 			// which will automatically terminate goofys when our
 			// credentials expire
-			credscontext, _ := context.WithDeadline(ctx, wake)
+			credscontext, _ := context.WithDeadline(cctx, wake)
 
 			<-credscontext.Done()
 			switch credscontext.Err() {
