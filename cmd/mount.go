@@ -53,36 +53,27 @@ func doCredentials(issuer *client.Client, vaultPath string, vaultTTL time.Durati
 		TTL:  vaultTTL,
 	})
 	if err != nil {
-		klog.Errorf("failed to issue credentials: %v", err)
 		return nil, err
 	}
-
-	// klog.Infof("obtained credentials from vault: %s, expires at %v", creds.AccessKey, creds.Lease.Expiry)
 
 	// Write credentials to file
 	ini.PrettyFormat = false
 	cfg := ini.Empty()
 	cfgsec, err := cfg.NewSection("default")
 	if err != nil {
-		// klog.Errorf("failed to create credentials section: %v", err)
 		return nil, err
 	}
 	if _, err = cfgsec.NewKey("aws_access_key_id", creds.AccessKey); err != nil {
-		// klog.Errorf("failed to write access key: %v", err)
 		return nil, err
 	}
 	if _, err = cfgsec.NewKey("aws_secret_access_key", creds.SecretKey); err != nil {
-		// klog.Errorf("failed to write secret key: %v", err)
 		return nil, err
 	}
 	if _, err = cfgsec.NewKey("expires_at", creds.Lease.Expiry.Format(time.RFC3339)); err != nil {
-		// klog.Errorf("failed to write expiry: %v", err)
 		return nil, err
 	}
 
-	// klog.Infof("writing credentials to %q", filename)
 	if err = cfg.SaveTo(filename); err != nil {
-		// klog.Errorf("failed to write ini file: %v", err)
 		return nil, err
 	}
 
@@ -118,19 +109,40 @@ var mountCmd = &cobra.Command{
 		var options map[string]string
 		err = json.Unmarshal([]byte(args[1]), &options)
 		if err != nil {
-			klog.Fatalf("failed to parse options: %v", err)
+			err := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
+				Status:  flexvol.StatusFailure,
+				Message: fmt.Sprintf("failed to parse options: %v", err),
+			})
+			if err != nil {
+				log.Fatal(err)
+			}
+			os.Exit(1)
 		}
 
 		if flag := cmd.Flag("agent-socket-path"); flag != nil {
 			socketPath, err = net.ResolveUnixAddr("unix", flag.Value.String())
 			if err != nil {
-				log.Fatalf("failed to resolve unix socket: %v", err)
+				err := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
+					Status:  flexvol.StatusFailure,
+					Message: fmt.Sprintf("failed to resolve socket: %v", err),
+				})
+				if err != nil {
+					log.Fatal(err)
+				}
+				os.Exit(1)
 			}
 		}
 
 		c, err := client.NewClient(socketPath)
 		if err != nil {
-			log.Fatalf("failed to create client: %v", err)
+			err := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
+				Status:  flexvol.StatusFailure,
+				Message: fmt.Sprintf("failed to create boathouse client: %v", err),
+			})
+			if err != nil {
+				log.Fatal(err)
+			}
+			os.Exit(1)
 		}
 
 		vaultPath := ""
@@ -142,7 +154,14 @@ var mountCmd = &cobra.Command{
 		if val, ok := options["vault-ttl"]; ok {
 			dval, err := time.ParseDuration(val)
 			if err != nil {
-				klog.Warningf("failed to parse vault ttl duration: %v", err)
+				err := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
+					Status:  flexvol.StatusFailure,
+					Message: fmt.Sprintf("failed to parse vault-ttl: %v", err),
+				})
+				if err != nil {
+					log.Fatal(err)
+				}
+				os.Exit(1)
 			} else {
 				vaultTTL = dval
 			}
@@ -169,7 +188,14 @@ var mountCmd = &cobra.Command{
 		dctx := new(daemon.Context)
 		child, err := dctx.Reborn()
 		if err != nil {
-			klog.Fatalf("failed to daemonize: %v", err)
+			err := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
+				Status:  flexvol.StatusFailure,
+				Message: fmt.Sprintf("failed to daemonize: %v", err),
+			})
+			if err != nil {
+				log.Fatal(err)
+			}
+			os.Exit(1)
 		}
 
 		// 4a. [Client] On success, signal parent that we have successfully started and write pid to state file

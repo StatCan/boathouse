@@ -47,7 +47,7 @@ var unmountCmd = &cobra.Command{
 		if err != nil {
 			perr := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
 				Status:  flexvol.StatusFailure,
-				Message: fmt.Sprintf("could not load pid file for path %s: %v", target, err.Error()),
+				Message: fmt.Sprintf("could not load pid file for path %s: %v", target, err),
 			})
 			if perr != nil {
 				log.Fatal(perr)
@@ -60,7 +60,7 @@ var unmountCmd = &cobra.Command{
 		if err != nil {
 			perr := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
 				Status:  flexvol.StatusFailure,
-				Message: fmt.Sprintf("error reading pid at %s: %v", target, err.Error()),
+				Message: fmt.Sprintf("error reading pid at %s: %v", target, err),
 			})
 			if perr != nil {
 				log.Fatal(perr)
@@ -72,7 +72,7 @@ var unmountCmd = &cobra.Command{
 		if err != nil {
 			perr := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
 				Status:  flexvol.StatusFailure,
-				Message: fmt.Sprintf("cannot find process %d: %v", pid, err.Error()),
+				Message: fmt.Sprintf("cannot find process %d: %v", pid, err),
 			})
 			if perr != nil {
 				log.Fatal(perr)
@@ -83,7 +83,7 @@ var unmountCmd = &cobra.Command{
 		if err != nil && err.Error() != "os: process already finished" {
 			perr := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
 				Status:  flexvol.StatusFailure,
-				Message: fmt.Sprintf("error sending signal to pid %d: %v", pid, err.Error()),
+				Message: fmt.Sprintf("error sending signal to pid %d: %v", pid, err),
 			})
 			if perr != nil {
 				log.Fatal(perr)
@@ -95,7 +95,7 @@ var unmountCmd = &cobra.Command{
 		if err != nil && !os.IsNotExist(err) {
 			perr := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
 				Status:  flexvol.StatusFailure,
-				Message: fmt.Sprintf("error removing pid file %s: %v", target, err.Error()),
+				Message: fmt.Sprintf("error removing target %s: %v", target, err),
 			})
 			if perr != nil {
 				log.Fatal(perr)
