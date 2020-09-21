@@ -1,0 +1,177 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: boathouse
+  namespace: daaas
+  labels:
+    app.kubernetes.io/name: boathouse
+    app.kubernetes.io/instance: boathouse
+
+# ConfigMap
+# Based on: https://github.com/StatCan/s3-fuse-flex-volume/blob/master/helm-chart/s3-fuse-flex-volume/templates/fuse_install_deps.yaml
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: boathouse-scripts
+  namespace: daaas
+  labels:
+    app.kubernetes.io/name: boathouse
+    app.kubernetes.io/instance: boathouse
+data:
+  install_deps.sh: |-
+    #!/usr/bin/env sh
+    # See https://get.docker.com.
+    get_distro() {
+        distro=""
+      # Every system that we officially support has /etc/os-release
+      if [ -r /etc/os-release ]; then
+        distro="$(. /etc/os-release && echo "$ID")"
+      fi
+      # Returning an empty string here should be alright since the
+      # case statements don't act unless you provide an actual value
+      echo "$distro" | tr '[:upper:]' '[:lower:]'
+    }
+    run_ubuntu() {
+        apt-get update
+        apt-get install -y fuse
+        rm -f /usr/bin/goofys
+        curl -L -o /usr/bin/goofys https://github.com/StatCan/goofys/releases/download/v0.24.0-statcan-2/goofys
+        chmod +x /usr/bin/goofys
+    }
+    distro=$(get_distro)
+    case $distro in
+        ubuntu)
+            run_ubuntu
+        ;;
+        *)
+            echo "Unsupported distro"
+            exit 1
+        ;;
+    esac
+    exit 0
+
+
+# DaemonSet
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: boathouse
+  namespace: daaas
+  labels:
+    app.kubernetes.io/name: boathouse
+    app.kubernetes.io/instance: boathouse
+spec:
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: boathouse
+      app.kubernetes.io/instance: boathouse
+  template:
+    metadata:
+      name: boathouse
+      labels:
+        app.kubernetes.io/name: boathouse
+        app.kubernetes.io/instance: boathouse
+      annotations:
+        sidecar.istio.io/inject: 'false'
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/agent-configmap: "boathouse-vault-agent-config"
+        vault.hashicorp.com/agent-pre-populate: "false"
+    spec:
+      initContainers:
+        - name: install-host-deps
+          image: busybox:latest
+          imagePullPolicy: Always
+          securityContext:
+              privileged: false
+          volumeMounts:
+            - mountPath: /rootfs
+              name: rootfs
+            - mountPath: /scripts
+              name: boathouse-scripts
+          command:
+            - sh
+            - -c
+            - cp /scripts/install_deps.sh /rootfs/tmp/ && chroot /rootfs sh /tmp/install_deps.sh
+        - name: boathouse-deploy
+          image: k8scc01covidacr.azurecr.io/boathouse:latest
+          command:
+            - sh
+            - -c
+            - mkdir -p '/flexmnt/statcan.gc.ca~boathouse/' && cp /usr/local/bin/boathouse '/flexmnt/statcan.gc.ca~boathouse/boathouse'
+          imagePullPolicy: Always
+          securityContext:
+              privileged: false
+          volumeMounts:
+            - mountPath: /flexmnt
+              name: flexvolume-plugindir
+            - mountPath: /hostbin
+              name: flexvolume-usrlocalbin
+      containers:
+        - name: agent
+          image: k8scc01covidacr.azurecr.io/boathouse:latest
+          args: ["agent"]
+          env:
+            - name: VAULT_AGENT_ADDR
+              value: http://127.0.0.1:8100
+          securityContext:
+            privileged: false
+          volumeMounts:
+            - name: rootfs
+              subPath: tmp
+              mountPath: /tmp
+      volumes:
+        - name: flexvolume-plugindir
+          hostPath:
+            path: /etc/kubernetes/volumeplugins
+        - name: flexvolume-usrlocalbin
+          hostPath:
+            path: '/usr/local/bin'
+        - name: rootfs
+          hostPath:
+            path: /
+            type: Directory
+        - name: boathouse-scripts
+          configMap:
+            name: boathouse-scripts
+      tolerations:
+        - key: dedicated
+          operator: Exists
+      imagePullSecrets:
+        - name: k8scc01covidacr-registry-connection
+      serviceAccountName: boathouse
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: boathouse-vault-agent-config
+  namespace: daaas
+  labels:
+    app.kubernetes.io/name: boathouse
+    app.kubernetes.io/instance: boathouse
+data:
+  config.hcl: |
+    "auto_auth" = {
+      "method" = {
+        "config" = {
+          "role" = "boathouse"
+        }
+        "type" = "kubernetes"
+        "mount_path" = "auth/k8s-cancentral-02-covid-aks"
+      }
+    }
+    "exit_after_auth" = false
+    "pid_file" = "/home/vault/.pid"
+    cache {
+      "use_auto_auth_token" = "force"
+    }
+    listener "tcp" {
+      address = "127.0.0.1:8100"
+      "tls_disable" = true
+    }
+    "vault" = {
+      "address" = "https://vault.covid.cloud.statcan.ca"
+    }
