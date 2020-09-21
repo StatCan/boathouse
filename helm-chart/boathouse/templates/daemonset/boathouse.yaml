@@ -90,3 +90,4 @@ spec:
 {{ toYaml .Values.imagePullSecrets | indent 8 }}
       {{- end }}
       serviceAccountName: boathouse
+      priorityClassName: boathouse
