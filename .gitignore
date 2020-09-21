@@ -1,3 +1,4 @@
 vendor
 boathouse
+!helm-chart/boathouse
 .DS_Store

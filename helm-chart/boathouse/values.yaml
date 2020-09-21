@@ -1,0 +1,6 @@
+image:
+  repository: k8scc01covidacr.azurecr.io/boathouse
+  tag: latest
+  pullPolicy: Always
+flexVolume:
+  pluginDir: /etc/kubernetes/volumeplugins

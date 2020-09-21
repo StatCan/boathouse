@@ -19,8 +19,10 @@ on:
 # Environment variables available to all jobs and steps in this workflow
 env:
   REGISTRY_NAME: k8scc01covidacr
-  CLUSTER_NAME: k8s-cancentral-01-covid-aks
+  CLUSTER_NAME: k8s-cancentral-02-covid-aks
   CLUSTER_RESOURCE_GROUP: k8s-cancentral-01-covid-aks
+  NAMESPACE: daaas
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -46,13 +48,25 @@ jobs:
         severity-threshold: CRITICAL
         run-quality-checks: false
 
-    # # Prepare to deploy the image
-    # - run: |
-    #     sed -i -E 's/[0-9a-f]{40}/${{ github.sha }}/g' deploy/deploy.yaml
+    # Clone the Helm chart
+    - run: |
+        mkdir -p /home/runner/work/_temp/_github_home/
+        echo ${{ secrets.KUBECONFIG }} | base64 --decode > /home/runner/work/_temp/_github_home/KUBECONFIG
 
-    # # Deploy to Kubernetes
-    # - name: kubectl
-    #   uses: statcan/actions/kubectl@master
-    #   with:
-    #     kubeconfig: ${{ secrets.KUBECONFIG }}
-    #     args: apply -f deploy/deploy.yaml
+    # Deploy Helm chart
+    - uses: 'statcan/actions/helm@master'
+      env:
+        KUBECONFIG: /github/home/KUBECONFIG
+      with:
+        release: 'boathouse'
+        namespace: 'daaas'
+        tillerNamespace: 'daaas'
+        chart: './helm-chart/boathouse'
+        token: '${{ github.token }}'
+        values: |
+          image:
+            repository: "${{ env.REGISTRY_NAME }}.azurecr.io/boathouse"
+            tag: "${{ github.sha }}"
+            pullPolicy: Always
+          imagePullSecrets:
+            - name: "${{ env.REGISTRY_NAME }}-registry-connection"

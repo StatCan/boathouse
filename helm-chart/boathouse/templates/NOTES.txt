@@ -1,0 +1,1 @@
+boathouse has been registered to your kubernetes cluster!

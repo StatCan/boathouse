@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: boathouse
+  labels:
+    app.kubernetes.io/name: boathouse
+    app.kubernetes.io/instance: boathouse
