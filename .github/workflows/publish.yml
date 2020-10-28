@@ -60,7 +60,6 @@ jobs:
       with:
         release: 'boathouse'
         namespace: 'daaas'
-        tillerNamespace: 'daaas'
         chart: './helm-chart/boathouse'
         token: '${{ github.token }}'
         values: |
