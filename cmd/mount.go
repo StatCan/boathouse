@@ -25,6 +25,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net"
@@ -278,6 +279,33 @@ var mountCmd = &cobra.Command{
 		goofysArgs = append(goofysArgs, target)
 
 		goofys := exec.CommandContext(ctx, "goofys", goofysArgs...)
+
+		var stdout io.Writer
+		var stderr io.Writer
+
+		stdoutFile, err := os.OpenFile(fmt.Sprintf("%s.stdout", pidfile), os.O_CREATE|os.O_WRONLY, 0666)
+		if err != nil {
+			klog.Warningf("failed to make stdout file: %v", err)
+			stdout = ioutil.Discard
+		} else {
+			stdout = stdoutFile
+			defer stdoutFile.Close()
+		}
+
+		stderrFile, err := os.OpenFile(fmt.Sprintf("%s.stderr", pidfile), os.O_CREATE|os.O_WRONLY, 0666)
+		if err != nil {
+			klog.Warningf("failed to make stdout file: %v", err)
+			stderr = ioutil.Discard
+		} else {
+			stderr = stderrFile
+			defer stderrFile.Close()
+		}
+
+		klog.Infof("out file: %s", fmt.Sprintf("%s.stdout", pidfile))
+		klog.Infof("err file: %s", fmt.Sprintf("%s.stderr", pidfile))
+
+		goofys.Stdout = stdout
+		goofys.Stderr = stderr
 
 		klog.Infof("starting goofys")
 		go goofys.Run()

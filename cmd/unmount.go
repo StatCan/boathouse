@@ -105,6 +105,8 @@ var unmountCmd = &cobra.Command{
 
 		// Remove the pid file
 		_ = os.Remove(pidfile)
+		_ = os.Remove(fmt.Sprintf("%s.stdout", pidfile))
+		_ = os.Remove(fmt.Sprintf("%s.stderr", pidfile))
 
 		perr := utils.PrintJSON(os.Stdout, flexvol.DriverStatus{
 			Status:  flexvol.StatusSuccess,
