@@ -25,7 +25,7 @@ data:
         apt-get update
         apt-get install -y fuse
         rm -f /usr/bin/goofys
-        curl -L -o /usr/bin/goofys https://github.com/StatCan/goofys/releases/download/v0.24.0-statcan-2/goofys
+        curl -L -o /usr/bin/goofys https://github.com/StatCan/goofys/releases/download/v0.24.0-statcan-3/goofys
         chmod +x /usr/bin/goofys
     }
 
