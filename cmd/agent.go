@@ -91,7 +91,7 @@ var agentCmd = &cobra.Command{
 
 		server := http.Server{
 			Handler:      handlers.CombinedLoggingHandler(os.Stdout, router),
-			WriteTimeout: 15 * time.Second,
+			WriteTimeout: 1 * time.Minute,
 			ReadTimeout:  15 * time.Second,
 		}
 
