@@ -25,7 +25,18 @@ data:
         apt-get update
         apt-get install -y fuse
         rm -f /usr/bin/goofys
-        curl -L -o /usr/bin/goofys https://github.com/StatCan/goofys/releases/download/v0.24.0-statcan-3/goofys
+        curl --connect-timeout 5 \
+             --max-time 10 \
+             --retry 10 \
+             --retry-delay 0 \
+             --retry-max-time 120 \
+             -L -o /usr/bin/goofys https://github.com/StatCan/goofys/releases/download/v0.24.0-statcan-2/goofys
+
+        if [ ! -f /usr/bin/goofys ]  ; then
+            echo "Could not download goofys"
+            exit 1
+        fi
+        
         chmod +x /usr/bin/goofys
     }
 
